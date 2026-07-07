@@ -831,8 +831,15 @@ export default function App() {
             stopMahi();
           },
           onerror: (err: any) => {
-            console.error('Live API Error:', err);
             const msg = (err?.message || String(err)).toLowerCase();
+            
+            // Ignore normal connection abort/cancel events during cleanup or tab switching
+            if (msg.includes("abort") || msg.includes("aborted")) {
+              console.log('Live API connection aborted/cancelled (normal cleanup):', err);
+              return;
+            }
+
+            console.error('Live API Error:', err);
             
             // Auto-reconnect for network issues
             if (msg.includes("network") || msg.includes("fetch") || msg.includes("internal error") || msg.includes("socket") || msg.includes("failed to connect") || msg.includes("unavailable")) {
@@ -846,7 +853,7 @@ export default function App() {
                 } else {
                   setError(`Signal kam aa raha hai... reconnect kar rahi hoon (${retryCountRef.current}/5)`);
                 }
-
+ 
                 setTimeout(() => {
                   startMahi();
                 }, waitTime);
@@ -856,7 +863,7 @@ export default function App() {
             } else if (msg.includes("quota") || msg.includes("limit")) {
               setError("Humne bohot baatein kar li aaj! Limit khatam ho gayi hai. Kal milte hain? (Quota Limit Reached)");
               stopMahi();
-            } else if (msg.includes("GoAway") || msg.includes("aborted") || msg.includes("closed")) {
+            } else if (msg.includes("goaway") || msg.includes("closed")) {
               setError("Session khatam ho gaya. Chalo phir se start karte hain!");
               stopMahi();
             } else {
