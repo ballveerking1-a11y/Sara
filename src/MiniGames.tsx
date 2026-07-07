@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Trophy, Star, Music, Brain, X, CheckCircle2, AlertCircle, 
   Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, User, Bot, 
-  Volume2, Play, Sparkles, HelpCircle, ArrowRight, RotateCcw
+  Volume2, Play, Sparkles, HelpCircle, ArrowRight, RotateCcw,
+  Scissors, FileText, Square, Circle
 } from 'lucide-react';
 
-export type GameType = 'ludo' | 'trivia' | 'sound' | 'none';
+export type GameType = 'ludo' | 'trivia' | 'sound' | 'tictactoe' | 'rps' | 'none';
 
 interface MiniGamesProps {
   gameType: GameType;
@@ -140,6 +141,20 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
   const [soundFinished, setSoundFinished] = useState(false);
   const [isPlayingSound, setIsPlayingSound] = useState(false);
 
+  // --- Tic-Tac-Toe State ---
+  const [board, setBoard] = useState<(string | null)[]>(Array(9).fill(null));
+  const [tttWinner, setTttWinner] = useState<'player' | 'mahi' | 'tie' | null>(null);
+  const [tttTurn, setTttTurn] = useState<'player' | 'mahi'>('player');
+  const [tttScore, setTttScore] = useState({ player: 0, mahi: 0 });
+  const [tttMessage, setTttMessage] = useState("Khel shuru karein! Tumhaara symbol 'X' hai.");
+
+  // --- Rock Paper Scissors State ---
+  const [playerChoice, setPlayerChoice] = useState<string | null>(null);
+  const [mahiChoice, setMahiChoice] = useState<string | null>(null);
+  const [rpsResult, setRpsResult] = useState<'player' | 'mahi' | 'tie' | null>(null);
+  const [rpsScore, setRpsScore] = useState({ player: 0, mahi: 0 });
+  const [rpsComment, setRpsComment] = useState("Apna move chuno: Patthar, Kagaz, ya Kainchi?");
+
   // Reset all games state on type change
   useEffect(() => {
     // Reset Ludo
@@ -162,6 +177,18 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
     setSoundAnswered(false);
     setSoundFinished(false);
     setIsPlayingSound(false);
+
+    // Reset Tic-Tac-Toe
+    setBoard(Array(9).fill(null));
+    setTttWinner(null);
+    setTttTurn('player');
+    setTttMessage("Khel shuru karein! Tumhaara symbol 'X' hai.");
+
+    // Reset RPS
+    setPlayerChoice(null);
+    setMahiChoice(null);
+    setRpsResult(null);
+    setRpsComment("Apna move chuno: Patthar, Kagaz, ya Kainchi?");
   }, [gameType]);
 
   // --- Ludo Roll ---
@@ -373,6 +400,171 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
     setSoundFinished(false);
     setIsPlayingSound(false);
     onGameEvent('sound_restarted', 0);
+  };
+
+  // --- Tic-Tac-Toe Game Logic ---
+  const checkWinner = (b: (string | null)[]) => {
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
+      [0, 4, 8], [2, 4, 6]             // diagonals
+    ];
+    for (const [a, c, d] of lines) {
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) {
+        return b[a];
+      }
+    }
+    if (b.every(cell => cell !== null)) return 'tie';
+    return null;
+  };
+
+  const handleCellClick = (index: number) => {
+    if (board[index] || tttWinner || tttTurn !== 'player') return;
+
+    const nextBoard = [...board];
+    nextBoard[index] = 'X';
+    setBoard(nextBoard);
+
+    const win = checkWinner(nextBoard);
+    if (win) {
+      if (win === 'X') {
+        setTttWinner('player');
+        setTttScore(s => ({ ...s, player: s.player + 1 }));
+        setTttMessage("Sahi mein, tum toh bohot hoshiyaar ho! Tum jeet gaye! 🎉");
+        onGameEvent('tictactoe_player_won', tttScore.player + 1);
+      } else {
+        setTttWinner('tie');
+        setTttMessage("Arey, tie ho gaya! Chalo, ek aur baar try karein? 🤝");
+        onGameEvent('tictactoe_tie', 0);
+      }
+    } else {
+      setTttTurn('mahi');
+      setTttMessage("Hahaha, ab meri baari hai! Sochne do... 🤔");
+      setTimeout(() => {
+        makeMahiMove(nextBoard);
+      }, 800);
+    }
+  };
+
+  const makeMahiMove = (currentBoard: (string | null)[]) => {
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    let move = -1;
+
+    // 1. Can Mahi win?
+    for (const [a, b, c] of lines) {
+      const vals = [currentBoard[a], currentBoard[b], currentBoard[c]];
+      if (vals.filter(v => v === 'O').length === 2 && vals.filter(v => v === null).length === 1) {
+        const emptyIdx = [a, b, c].find(i => currentBoard[i] === null);
+        if (emptyIdx !== undefined) { move = emptyIdx; break; }
+      }
+    }
+
+    // 2. Can Mahi block?
+    if (move === -1) {
+      for (const [a, b, c] of lines) {
+        const vals = [currentBoard[a], currentBoard[b], currentBoard[c]];
+        if (vals.filter(v => v === 'X').length === 2 && vals.filter(v => v === null).length === 1) {
+          const emptyIdx = [a, b, c].find(i => currentBoard[i] === null);
+          if (emptyIdx !== undefined) { move = emptyIdx; break; }
+        }
+      }
+    }
+
+    // 3. Take center
+    if (move === -1 && currentBoard[4] === null) {
+      move = 4;
+    }
+
+    // 4. Take random free space
+    if (move === -1) {
+      const free = currentBoard.map((c, i) => c === null ? i : null).filter(i => i !== null) as number[];
+      if (free.length > 0) {
+        move = free[Math.floor(Math.random() * free.length)];
+      }
+    }
+
+    if (move !== -1) {
+      const nextBoard = [...currentBoard];
+      nextBoard[move] = 'O';
+      setBoard(nextBoard);
+
+      const win = checkWinner(nextBoard);
+      if (win) {
+        if (win === 'O') {
+          setTttWinner('mahi');
+          setTttScore(s => ({ ...s, mahi: s.mahi + 1 }));
+          setTttMessage("Yaaay! Maine match jeet liya! Dekha, main bhi smart hoon! 😜");
+          onGameEvent('tictactoe_mahi_won', tttScore.mahi + 1);
+        } else {
+          setTttWinner('tie');
+          setTttMessage("Arey, tie ho gaya! Chalo, ek aur baar try karein? 🤝");
+          onGameEvent('tictactoe_tie', 0);
+        }
+      } else {
+        setTttTurn('player');
+        setTttMessage("Tumhaari turn hai, dekhte hain ab tum kya karoge! 😉");
+      }
+    }
+  };
+
+  const restartTtt = () => {
+    setBoard(Array(9).fill(null));
+    setTttWinner(null);
+    setTttTurn('player');
+    setTttMessage("Chalo, ek aur match shuru! Pehli turn tumhaari.");
+  };
+
+  // --- Rock Paper Scissors Logic ---
+  const handleRpsPlay = (playerSelection: 'rock' | 'paper' | 'scissors') => {
+    setPlayerChoice(playerSelection);
+    const options = ['rock', 'paper', 'scissors'];
+    const mahiSelection = options[Math.floor(Math.random() * 3)];
+    setMahiChoice(mahiSelection);
+
+    let res: 'player' | 'mahi' | 'tie' = 'tie';
+    let msg = "";
+
+    if (playerSelection === mahiSelection) {
+      res = 'tie';
+      msg = `Donon ne ${playerSelection === 'rock' ? 'Patthar 🪨' : playerSelection === 'paper' ? 'Kagaz 📄' : 'Kainchi ✂️'} chuna! Hum donon ka mind bilkul same chal raha hai! Tie! 🤝`;
+    } else if (
+      (playerSelection === 'rock' && mahiSelection === 'scissors') ||
+      (playerSelection === 'paper' && mahiSelection === 'rock') ||
+      (playerSelection === 'scissors' && mahiSelection === 'paper')
+    ) {
+      res = 'player';
+      setRpsScore(s => ({ ...s, player: s.player + 1 }));
+      msg = `Oops! Tumhaare ${playerSelection === 'rock' ? 'Patthar 🪨' : playerSelection === 'paper' ? 'Kagaz 📄' : 'Kainchi ✂️'} ne mere ${mahiSelection === 'rock' ? 'Patthar 🪨' : mahiSelection === 'paper' ? 'Kagaz 📄' : 'Kainchi ✂️'} ko hara diya! Tum jeet gaye! 🎉`;
+      onGameEvent('rps_player_won', rpsScore.player + 1);
+    } else {
+      res = 'mahi';
+      setRpsScore(s => ({ ...s, mahi: s.mahi + 1 }));
+      msg = `Yay! Mere ${mahiSelection === 'rock' ? 'Patthar 🪨' : mahiSelection === 'paper' ? 'Kagaz 📄' : 'Kainchi ✂️'} ne tumhaare ${playerSelection === 'rock' ? 'Patthar 🪨' : playerSelection === 'paper' ? 'Kagaz 📄' : 'Kainchi ✂️'} ko beat kar diya! Main jeet gayi! 😜`;
+      onGameEvent('rps_mahi_won', rpsScore.mahi + 1);
+    }
+
+    setRpsResult(res);
+    setRpsComment(msg);
+  };
+
+  const nextRpsRound = () => {
+    setPlayerChoice(null);
+    setMahiChoice(null);
+    setRpsResult(null);
+    setRpsComment("Agla round! Chalo jaldi se apna option chuno: Patthar, Kagaz ya Kainchi?");
+  };
+
+  const restartRpsGame = () => {
+    setPlayerChoice(null);
+    setMahiChoice(null);
+    setRpsResult(null);
+    setRpsScore({ player: 0, mahi: 0 });
+    setRpsComment("Score reset ho gaya! Chalo, pehla round chuno!");
   };
 
 
@@ -894,6 +1086,243 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
             <div className="p-6 bg-white/5 text-center">
               <p className="text-[10px] text-gray-400 tracking-wider">
                 Sound Game: Guess the sound synthesized right in your browser!
+              </p>
+            </div>
+          </Fragment>
+        )}
+
+        {/* ==============================================
+            GAME MODE 4: TIC-TAC-TOE
+            ============================================== */}
+        {gameType === 'tictactoe' && (
+          <Fragment>
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-white/5 pr-14">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black uppercase text-white tracking-wider">Mahi's Neon Tic-Tac-Toe</h2>
+                  <p className="text-[10px] text-gray-400">Beat me in the classic 3x3 challenge!</p>
+                </div>
+              </div>
+              {/* Scores */}
+              <div className="flex items-center gap-4 text-xs font-mono bg-white/5 border border-white/5 px-4 py-1.5 rounded-xl">
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[9px] uppercase">You</span>
+                  <span className="text-pink-400 font-bold">{tttScore.player}</span>
+                </div>
+                <div className="h-6 w-px bg-white/10" />
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[9px] uppercase">Mahi</span>
+                  <span className="text-indigo-400 font-bold">{tttScore.mahi}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="p-6 flex flex-col gap-5 flex-1 justify-center max-h-[75vh] overflow-y-auto">
+              {/* Message Banner */}
+              <div className="bg-white/5 border border-white/10 p-3 rounded-2xl text-center text-xs text-white flex items-center justify-center gap-2">
+                <Bot size={16} className="text-pink-400 animate-bounce" />
+                <span className="font-medium">{tttMessage}</span>
+              </div>
+
+              {/* 3x3 Grid */}
+              <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto w-full aspect-square">
+                {board.map((cell, idx) => (
+                  <motion.button
+                    key={`cell-${idx}`}
+                    onClick={() => handleCellClick(idx)}
+                    whileHover={{ scale: cell ? 1 : 1.05 }}
+                    whileTap={{ scale: cell ? 1 : 0.95 }}
+                    className={`
+                      aspect-square rounded-2xl border flex items-center justify-center text-3xl font-black transition-all cursor-pointer
+                      ${cell === 'X' ? 'bg-pink-500/15 border-pink-500/40 text-pink-400 shadow-[0_0_15px_rgba(236,72,153,0.2)]' : 
+                        cell === 'O' ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 
+                        'bg-white/5 border-white/10 hover:border-white/30'}
+                    `}
+                    id={`ttt-cell-${idx}`}
+                    disabled={!!cell || !!tttWinner || tttTurn !== 'player'}
+                  >
+                    <AnimatePresence mode="wait">
+                      {cell === 'X' && (
+                        <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                          X
+                        </motion.span>
+                      )}
+                      {cell === 'O' && (
+                        <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                          O
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
+                ))}
+              </div>
+
+              {/* Winner Reveal / Restart options */}
+              {tttWinner && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col gap-3 mt-2"
+                >
+                  <button
+                    onClick={restartTtt}
+                    className="w-full py-3 bg-gradient-to-r from-pink-500 to-indigo-500 hover:from-pink-600 hover:to-indigo-600 text-white rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg"
+                    id="ttt-restart-btn"
+                  >
+                    <RotateCcw size={14} />
+                    <span>Play Another Round</span>
+                  </button>
+                </motion.div>
+              )}
+            </div>
+
+            <div className="p-6 bg-white/5 text-center mt-auto">
+              <p className="text-[10px] text-gray-400 tracking-wider">
+                Mahi's Tic-Tac-Toe: Pure HTML5 logic with custom smart block heuristic.
+              </p>
+            </div>
+          </Fragment>
+        )}
+
+        {/* ==============================================
+            GAME MODE 5: ROCK PAPER SCISSORS
+            ============================================== */}
+        {gameType === 'rps' && (
+          <Fragment>
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-white/5 pr-14">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400">
+                  <Scissors size={18} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black uppercase text-white tracking-wider">Mahi's Mind RPS Game</h2>
+                  <p className="text-[10px] text-gray-400">Can you beat my predictions? Play now!</p>
+                </div>
+              </div>
+              {/* Scores */}
+              <div className="flex items-center gap-4 text-xs font-mono bg-white/5 border border-white/5 px-4 py-1.5 rounded-xl">
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[9px] uppercase">You</span>
+                  <span className="text-yellow-400 font-bold">{rpsScore.player}</span>
+                </div>
+                <div className="h-6 w-px bg-white/10" />
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[9px] uppercase">Mahi</span>
+                  <span className="text-indigo-400 font-bold">{rpsScore.mahi}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="p-6 flex flex-col gap-6 flex-1 justify-center max-h-[75vh] overflow-y-auto">
+              
+              {/* Comment Banner */}
+              <div className="bg-white/5 border border-white/10 p-4 rounded-2xl text-center text-xs text-white flex items-start gap-3 justify-center min-h-[64px]">
+                <Bot size={20} className="text-yellow-400 shrink-0" />
+                <p className="font-medium text-left leading-relaxed">{rpsComment}</p>
+              </div>
+
+              {/* Reveal Battle Arena */}
+              {playerChoice && mahiChoice && (
+                <div className="flex items-center justify-around bg-white/5 border border-white/10 py-5 px-3 rounded-2xl">
+                  {/* Player Choice */}
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-[9px] uppercase tracking-widest text-gray-400">You Picked</span>
+                    <motion.div 
+                      initial={{ scale: 0 }} 
+                      animate={{ scale: 1 }} 
+                      className="w-16 h-16 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 flex items-center justify-center text-3xl"
+                    >
+                      {playerChoice === 'rock' ? '🪨' : playerChoice === 'paper' ? '📄' : '✂️'}
+                    </motion.div>
+                    <span className="text-xs font-bold uppercase text-yellow-400">{playerChoice}</span>
+                  </div>
+
+                  <div className="text-xl font-bold font-mono text-gray-500 animate-pulse">VS</div>
+
+                  {/* Mahi Choice */}
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-[9px] uppercase tracking-widest text-gray-400">Mahi Picked</span>
+                    <motion.div 
+                      initial={{ scale: 0 }} 
+                      animate={{ scale: 1, transition: { delay: 0.15 } }} 
+                      className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl"
+                    >
+                      {mahiChoice === 'rock' ? '🪨' : mahiChoice === 'paper' ? '📄' : '✂️'}
+                    </motion.div>
+                    <span className="text-xs font-bold uppercase text-indigo-400">{mahiChoice}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Choice Action Buttons */}
+              {!playerChoice ? (
+                <div className="grid grid-cols-3 gap-3.5 w-full">
+                  <motion.button
+                    onClick={() => handleRpsPlay('rock')}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="py-4 rounded-2xl border border-white/10 bg-white/5 hover:border-yellow-500/50 hover:bg-yellow-500/5 flex flex-col items-center gap-2 cursor-pointer transition-all"
+                    id="rps-btn-rock"
+                  >
+                    <span className="text-3xl">🪨</span>
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-white">Rock</span>
+                  </motion.button>
+
+                  <motion.button
+                    onClick={() => handleRpsPlay('paper')}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="py-4 rounded-2xl border border-white/10 bg-white/5 hover:border-yellow-500/50 hover:bg-yellow-500/5 flex flex-col items-center gap-2 cursor-pointer transition-all"
+                    id="rps-btn-paper"
+                  >
+                    <span className="text-3xl">📄</span>
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-white">Paper</span>
+                  </motion.button>
+
+                  <motion.button
+                    onClick={() => handleRpsPlay('scissors')}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="py-4 rounded-2xl border border-white/10 bg-white/5 hover:border-yellow-500/50 hover:bg-yellow-500/5 flex flex-col items-center gap-2 cursor-pointer transition-all"
+                    id="rps-btn-scissors"
+                  >
+                    <span className="text-3xl">✂️</span>
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-white">Scissors</span>
+                  </motion.button>
+                </div>
+              ) : (
+                <div className="flex gap-4">
+                  <button
+                    onClick={nextRpsRound}
+                    className="flex-1 py-3.5 bg-yellow-500 hover:bg-yellow-400 text-black rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-yellow-500/10"
+                    id="rps-next-btn"
+                  >
+                    <ArrowRight size={14} />
+                    <span>Next Round</span>
+                  </button>
+                  <button
+                    onClick={restartRpsGame}
+                    className="py-3.5 px-5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer text-white"
+                    id="rps-reset-btn"
+                  >
+                    <RotateCcw size={14} />
+                    <span>Reset Score</span>
+                  </button>
+                </div>
+              )}
+
+            </div>
+
+            <div className="p-6 bg-white/5 text-center mt-auto">
+              <p className="text-[10px] text-gray-400 tracking-wider">
+                Mahi's Rock, Paper, Scissors: Rapid physical and mental matching!
               </p>
             </div>
           </Fragment>

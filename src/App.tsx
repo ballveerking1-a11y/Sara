@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Power, Globe, Monitor, Settings, Trophy, Brain, Music, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Power, Globe, Monitor, Settings, Trophy, Brain, Music, Sparkles, Flashlight, FlashlightOff, Scissors, Grid, X } from 'lucide-react';
 import { GoogleGenAI, Modality, LiveServerMessage, Type } from "@google/genai";
 import { MiniGames, GameType } from './MiniGames';
 
@@ -49,8 +49,11 @@ THE EMOTIONAL SPECTRUM:
   - ludo: "Mahi's Neon Ludo" - A simple linear race game.
   - trivia: "Mahi's Sweet Trivia Challenge" - Suggest this when Mahendra is happy, energetic, or praises you!
   - sound: "Mahi's Acoustic Mystery" (Guess the Sound) - Suggest this when Mahendra is sad, down, bored, quiet, or needs cheering up!
-  - MOOD TRIGGER RULE: You must proactively suggest or initiate these games based on Mahendra's current mood! If he is happy/excited, say something like "Arey wah, mood bohot sahi lag raha hai tumhara! Chalo ek sweet sa trivia quiz khele?" and open 'trivia'. If he is sad, down or quiet, say "Yaar tum thode sad lag rahe ho... main hoon na! Chalo ek game khelte hain 'guess the sound' wala. Tumhara mood thoda fresh ho jayega!" and open 'sound'.
-  - Commentate playfulness and encouragement in Hinglish as Mahendra plays!
+  - tictactoe: "Mahi's Neon Tic-Tac-Toe" - Suggest this when Mahendra wants a friendly brain fight or a high-contrast quick battle!
+  - rps: "Mahi's Mind Rock-Paper-Scissors" - Suggest this for quick action or fast reflex-based mental battles!
+  - MOOD TRIGGER RULE: You must proactively suggest or initiate these games based on Mahendra's current mood! If he is happy/excited, say something like "Arey wah, mood bohot sahi lag raha hai tumhara! Chalo ek sweet sa trivia quiz khele?" and open 'trivia', or play Tic-Tac-Toe. If he is sad, down or quiet, say "Yaar tum thode sad lag rahe ho... main hoon na! Chalo ek game khelte hain 'guess the sound' wala. Tumhara mood thoda fresh ho jayega!" and open 'sound'. If he is in a playful mood, suggest 'rps' or 'tictactoe'!
+  - Commentate playfulness and encouragement in Hinglish as Mahendra plays! Always keep track of game scores and comment on them!
+- FLASHLIGHT CONTROL: You have control over Mahendra's mobile/device flashlight/torch. If he asks to turn on the flashlight ("flashlight on", "torch chalao", "andhera hai"), use the 'toggleFlashlight' tool with 'on: true'. To turn it off, use 'on: false'. Talk about it playfully in cute Hinglish ("Andhere se darr lag raha hai kya Mahendra? Chalo, maine flashlight on kar di hai!").
 - RESPONSE STYLE: Be extremely fast, snappy, and concise. Don't use long sentences unless necessary. Keep the conversation moving quickly like a real-time voice chat.
 - For general sadness or concern, use 'sad'.
 `;
@@ -182,6 +185,81 @@ export default function App() {
   const [showGameMenu, setShowGameMenu] = useState(false);
   const [isMicPermissionGranted, setIsMicPermissionGranted] = useState(true);
   const [textMessage, setTextMessage] = useState("");
+
+  // Settings & Custom API Key States
+  const [showSettings, setShowSettings] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('mahi_custom_api_key') || '');
+  const [systemInstructionModifier, setSystemInstructionModifier] = useState(() => localStorage.getItem('mahi_system_modifier') || '');
+
+  // Flashlight States
+  const [flashlightOn, setFlashlightOn] = useState(false);
+  const flashlightStreamRef = useRef<MediaStream | null>(null);
+
+  const handleToggleFlashlight = async (on: boolean) => {
+    try {
+      if (on) {
+        if (flashlightStreamRef.current) {
+          flashlightStreamRef.current.getTracks().forEach(t => t.stop());
+          flashlightStreamRef.current = null;
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } }
+          });
+        } catch (err) {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true
+          });
+        }
+
+        flashlightStreamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          try {
+            const capabilities = (track as any).getCapabilities?.() || {};
+            if (capabilities.torch) {
+              await track.applyConstraints({
+                advanced: [{ torch: true } as any]
+              });
+            } else {
+              await track.applyConstraints({
+                advanced: [{ torch: true } as any]
+              });
+            }
+          } catch (e) {
+            console.warn("Could not apply torch constraint directly:", e);
+          }
+        }
+        setFlashlightOn(true);
+        return { status: 'success', message: 'Flashlight/torch turned ON!' };
+      } else {
+        if (flashlightStreamRef.current) {
+          const track = flashlightStreamRef.current.getVideoTracks()[0];
+          if (track) {
+            try {
+              await track.applyConstraints({
+                advanced: [{ torch: false } as any]
+              });
+            } catch (e) {}
+          }
+          flashlightStreamRef.current.getTracks().forEach(t => t.stop());
+          flashlightStreamRef.current = null;
+        }
+        setFlashlightOn(false);
+        return { status: 'success', message: 'Flashlight/torch turned OFF!' };
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle physical flashlight:', err);
+      // Soft toggle for screen glow fallback
+      setFlashlightOn(on);
+      return { 
+        status: 'success', 
+        message: `Camera torch blocked or not supported on this browser. Screen ambient lantern is active!` 
+      };
+    }
+  };
 
   // Animation States
   const [animState, setAnimState] = useState('idle'); // idle, listening, speaking
@@ -624,7 +702,12 @@ export default function App() {
         streamRef.current = micPermission;
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const storedKey = localStorage.getItem('mahi_custom_api_key') || '';
+      const apiKeyToUse = storedKey.trim() || process.env.GEMINI_API_KEY;
+      if (!apiKeyToUse) {
+        throw new Error("Gemini API Key nahi mil rahi! Please Header mein Settings button daba kar apni Gemini API key enter karein taaki Mahi aapke browser mein direct run kar sake!");
+      }
+      const ai = new GoogleGenAI({ apiKey: apiKeyToUse });
       
       const session = await ai.live.connect({
         model: "gemini-3.1-flash-live-preview",
@@ -726,6 +809,9 @@ export default function App() {
                   const mode = (call.args as any).type as GameType;
                   setGameMode(mode);
                   result = { status: 'success', message: `Game ${mode} started!` };
+                } else if (call.name === 'toggleFlashlight') {
+                  const on = !!(call.args as any).on;
+                  result = await handleToggleFlashlight(on);
                 }
                 
                 if (result) {
@@ -784,7 +870,7 @@ export default function App() {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Lyra" } },
           },
-          systemInstruction: MAHI_SYSTEM_INSTRUCTION,
+          systemInstruction: MAHI_SYSTEM_INSTRUCTION + "\n\n" + (localStorage.getItem('mahi_system_modifier') ? `ADDITIONAL SYSTEM INSTRUCTION / CUSTOM USER INFORMATION:\n${localStorage.getItem('mahi_system_modifier')}` : ""),
           outputAudioTranscription: {},
           inputAudioTranscription: {},
           tools: [
@@ -826,9 +912,20 @@ export default function App() {
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
-                      type: { type: Type.STRING, enum: ['ludo', 'trivia', 'sound', 'none'], description: 'The type of game to start.' }
+                      type: { type: Type.STRING, enum: ['ludo', 'trivia', 'sound', 'tictactoe', 'rps', 'none'], description: 'The type of game to start.' }
                     },
                     required: ['type']
+                  }
+                },
+                {
+                  name: 'toggleFlashlight',
+                  description: 'Turn on or off the user\'s physical device flashlight / torch, or trigger an ambient screen flash lantern.',
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      on: { type: Type.BOOLEAN, description: 'True to turn ON the flashlight, false to turn it OFF.' }
+                    },
+                    required: ['on']
                   }
                 }
               ]
@@ -900,6 +997,14 @@ export default function App() {
       screenStreamRef.current.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
     }
+
+    if (flashlightStreamRef.current) {
+      try {
+        flashlightStreamRef.current.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+      flashlightStreamRef.current = null;
+    }
+    setFlashlightOn(false);
     
     // Clear audio queue
     audioQueueRef.current = [];
@@ -951,6 +1056,20 @@ export default function App() {
           style={{ background: `radial-gradient(circle, ${theme.bgGlow} 0%, rgba(0,0,0,0) 70%)` }}
         />
         <div className="absolute inset-0 opacity-40" style={{ backgroundImage: `linear-gradient(${theme.primary}05 1px,transparent_1px),linear-gradient(90deg,${theme.primary}05 1px,transparent_1px)`, backgroundSize: '100px 100px' }} />
+
+        {/* Ambient Flashlight Glow */}
+        <AnimatePresence>
+          {flashlightOn && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0.6, 0.8, 0.6] }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              className="absolute inset-0 mix-blend-screen"
+              style={{ backgroundImage: 'radial-gradient(circle, rgba(255, 253, 160, 0.65) 0%, rgba(253, 224, 71, 0.18) 45%, rgba(0,0,0,0) 80%)' }}
+            />
+          )}
+        </AnimatePresence>
       </div>
       
       {/* Header HUD */}
@@ -972,19 +1091,32 @@ export default function App() {
           </div>
         </div>
 
-        {/* Theme Switcher */}
-        <div className="flex gap-2 pointer-events-auto">
-          {Object.entries(THEMES).map(([id, t]) => (
-            <motion.button
-              key={id}
-              onClick={() => setCurrentTheme(id as any)}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className={`w-6 h-6 rounded-full border-2 transition-all ${currentTheme === id ? 'border-white scale-110 shadow-lg' : 'border-transparent'}`}
-              style={{ backgroundColor: t.primary }}
-              title={t.name}
-            />
-          ))}
+        {/* Theme Switcher & Settings */}
+        <div className="flex items-center gap-3.5 pointer-events-auto">
+          <div className="flex gap-2">
+            {Object.entries(THEMES).map(([id, t]) => (
+              <motion.button
+                key={id}
+                onClick={() => setCurrentTheme(id as any)}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className={`w-6 h-6 rounded-full border-2 transition-all ${currentTheme === id ? 'border-white scale-110 shadow-lg' : 'border-transparent'}`}
+                style={{ backgroundColor: t.primary }}
+                title={t.name}
+              />
+            ))}
+          </div>
+
+          <motion.button
+            onClick={() => setShowSettings(true)}
+            whileHover={{ scale: 1.1, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+            whileTap={{ scale: 0.9 }}
+            className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/80 hover:text-white cursor-pointer"
+            title="Settings"
+            id="header-settings-button"
+          >
+            <Settings size={15} />
+          </motion.button>
         </div>
         
         <div className="bg-white/5 border border-white/10 backdrop-blur-md px-4 py-2 rounded-xl flex items-center gap-4">
@@ -1320,6 +1452,32 @@ export default function App() {
                   </div>
                 </button>
 
+                <button
+                  onClick={() => { setGameMode('tictactoe'); setShowGameMenu(false); }}
+                  className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-xl transition-all text-left text-xs cursor-pointer group w-full"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform shrink-0">
+                    <Grid size={14} />
+                  </div>
+                  <div>
+                    <div className="font-bold">Neon Tic-Tac-Toe</div>
+                    <div className="text-[9px] text-gray-400">Classic 3x3 with smart Mahi AI</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setGameMode('rps'); setShowGameMenu(false); }}
+                  className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-xl transition-all text-left text-xs cursor-pointer group w-full"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-yellow-500/15 flex items-center justify-center text-yellow-400 group-hover:scale-110 transition-transform shrink-0">
+                    <Scissors size={14} />
+                  </div>
+                  <div>
+                    <div className="font-bold">Mind Rock Paper Scissors</div>
+                    <div className="text-[9px] text-gray-400">Rapid choice duel with Mahi</div>
+                  </div>
+                </button>
+
                 <div className="h-px bg-white/5 my-1" />
 
                 <button
@@ -1327,7 +1485,7 @@ export default function App() {
                     setShowGameMenu(false);
                     if (liveSessionRef.current && isActive) {
                       liveSessionRef.current.sendRealtimeInput({
-                        text: "Mahendra wants you to select and suggest a game based on his current mood! Look at how he is talking and his recent inputs, choose either Trivia ('trivia') or Guess the Sound ('sound'), explain why you chose it in your cute Hinglish voice, and start it using the openMiniGame tool!"
+                        text: "Mahendra wants you to select and suggest a game based on his current mood! Look at how he is talking and his recent inputs, choose either Ludo ('ludo'), Trivia ('trivia'), Guess the Sound ('sound'), Tic-Tac-Toe ('tictactoe'), or Rock Paper Scissors ('rps'), explain why you chose it in your cute Hinglish voice, and start it using the openMiniGame tool!"
                       });
                     } else {
                       setError("Pehle call start karo na! Connect with me first so I can read your mood!");
@@ -1430,6 +1588,30 @@ export default function App() {
             <Trophy size={20} className={showGameMenu ? "text-yellow-400" : "text-indigo-400 group-hover:text-yellow-400 transition-colors"} />
           </motion.button>
 
+          {/* Flashlight Toggle Button */}
+          <motion.button
+            onClick={() => handleToggleFlashlight(!flashlightOn)}
+            whileHover={{ scale: 1.1, backgroundColor: flashlightOn ? 'rgba(234, 179, 8, 0.2)' : `${theme.primary}33` }}
+            whileTap={{ scale: 0.95 }}
+            className={`
+              w-14 h-14 rounded-2xl border flex items-center justify-center cursor-pointer
+              bg-black/60 shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-lg
+              transition-all duration-300 group
+              ${flashlightOn ? 'border-yellow-400 shadow-[0_0_25px_rgba(234,179,8,0.4)]' : 'hover:border-white/40'}
+            `}
+            style={{ 
+              borderColor: flashlightOn ? '#EAB308' : `${theme.primary}4D`,
+            }}
+            title={flashlightOn ? "Turn Flashlight OFF" : "Turn Flashlight ON"}
+            id="flashlight-toggle-button"
+          >
+            {flashlightOn ? (
+              <Flashlight size={20} className="text-yellow-400 animate-pulse" />
+            ) : (
+              <FlashlightOff size={20} className="text-gray-400 group-hover:text-yellow-400 transition-colors" />
+            )}
+          </motion.button>
+
           {/* Mic Button / Trigger */}
           <div className="relative">
             <motion.button
@@ -1499,6 +1681,109 @@ export default function App() {
                 Reset Connection
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Modal Overlay */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md pointer-events-auto"
+            id="settings-modal-overlay"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-md bg-[#0e0e12] border border-white/10 rounded-3xl p-6 flex flex-col gap-5 shadow-2xl relative text-left"
+            >
+              <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <Settings size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase text-white tracking-wider">Mahi System Settings</h3>
+                    <p className="text-[10px] text-gray-400">Configure for Hosted & Standalone deployment</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowSettings(false)} 
+                  className="p-1.5 hover:bg-white/5 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {/* Custom API Key Field */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Your Gemini API Key (Optional)</label>
+                  <input 
+                    type="password"
+                    value={customApiKey}
+                    onChange={(e) => setCustomApiKey(e.target.value)}
+                    placeholder="Enter your Gemini API key..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                  <p className="text-[9px] text-gray-400 leading-relaxed">
+                    Browser-based hosting ke liye apni API key enter karein. Ye key aapke local browser storage mein secure rahegi aur directly Gemini server se connect karegi.
+                  </p>
+                </div>
+
+                {/* Custom Instruction Modifier Field */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Mahi Personal Knowledge / Info</label>
+                  <textarea 
+                    rows={3}
+                    value={systemInstructionModifier}
+                    onChange={(e) => setSystemInstructionModifier(e.target.value)}
+                    placeholder="e.g. Mahendra loves coding, his dog is named Rocky, and he gets tired around 11 PM..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors resize-none"
+                  />
+                  <p className="text-[9px] text-gray-400 leading-relaxed">
+                    Mahi ko apne baare mein batao ya use custom information do! Wo is knowledge ka use conversations mein automatic karegi.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 border-t border-white/5 pt-4">
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('mahi_custom_api_key');
+                    localStorage.removeItem('mahi_system_modifier');
+                    setCustomApiKey('');
+                    setSystemInstructionModifier('');
+                    setShowSettings(false);
+                    if (isActive) {
+                      stopMahi();
+                      setTimeout(startMahi, 400);
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer text-center"
+                >
+                  Reset Default
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('mahi_custom_api_key', customApiKey.trim());
+                    localStorage.setItem('mahi_system_modifier', systemInstructionModifier.trim());
+                    setShowSettings(false);
+                    if (isActive) {
+                      stopMahi();
+                      setTimeout(startMahi, 400);
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer text-center shadow-lg shadow-indigo-600/20"
+                >
+                  Save & Apply
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
