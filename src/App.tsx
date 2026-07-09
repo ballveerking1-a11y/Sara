@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Power, Globe, Monitor, Settings, Trophy, Brain, Music, Sparkles, Flashlight, FlashlightOff, Scissors, Grid, X } from 'lucide-react';
+import { Mic, MicOff, Power, Globe, Monitor, Settings, Trophy, Brain, Music, Sparkles, Flashlight, FlashlightOff, Scissors, Grid, X, MessageSquare, Volume2, AlertTriangle, Copy, Check, Trash2, SlidersHorizontal, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { GoogleGenAI, Modality, LiveServerMessage, Type } from "@google/genai";
 import { MiniGames, GameType } from './MiniGames';
 
@@ -190,6 +190,100 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('mahi_custom_api_key') || '');
   const [systemInstructionModifier, setSystemInstructionModifier] = useState(() => localStorage.getItem('mahi_system_modifier') || '');
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('mahi_selected_model') || 'gemini-3.1-flash-live-preview');
+  const [showApiKey, setShowApiKey] = useState(false);
+  
+  // Interaction Mode (Voice Mode vs Chat Mode)
+  const [interactionMode, setInteractionMode] = useState<'voice' | 'chat'>(() => {
+    return (localStorage.getItem('mahi_interaction_mode') as 'voice' | 'chat') || 'voice';
+  });
+
+  // Chat history log for Chat Mode
+  const [chatHistory, setChatHistory] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('mahi_chat_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Error logging state for Error Dashboard
+  const [errorLogs, setErrorLogs] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('mahi_error_logs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showErrorDashboard, setShowErrorDashboard] = useState(false);
+
+  // Helper to append error logs & speak errors out loud in Hinglish (Mahi voice)
+  const triggerError = useCallback((message: string, details?: string) => {
+    setError(message);
+    if (!message) return;
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const newError = {
+      id: Math.random().toString(36).substring(7),
+      timestamp,
+      message,
+      details: details || "No technical trace available. Connection aborted or socket closed.",
+      severity: 'high' as const
+    };
+
+    setErrorLogs(prev => {
+      const updated = [newError, ...prev].slice(0, 50);
+      localStorage.setItem('mahi_error_logs', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Speak error aloud using browser TTS
+    try {
+      window.speechSynthesis.cancel();
+      let friendlySpeech = "Arey Mahendra, ek problem aa gayi hai. ";
+      const lower = message.toLowerCase() + " " + (details || "").toLowerCase();
+      
+      if (lower.includes("api key") || lower.includes("apikey") || lower.includes("key is missing")) {
+        friendlySpeech += "Mahi ki API Key settings mein sahi se enter karo na, tabhi main tumse connect ho paungi!";
+      } else if (lower.includes("permission") || lower.includes("notallowed") || lower.includes("mic") || lower.includes("microphone")) {
+        friendlySpeech += "Yaar, mic permission blocked hai. Browser ke address bar mein mic icon par click karke block hatao!";
+      } else if (lower.includes("quota") || lower.includes("limit") || lower.includes("429")) {
+        friendlySpeech += "Humne bohot saari baatein kar li na! Limit khatam ho gayi hai. Kisi aur API key ka use karo ya kal milte hain!";
+      } else if (lower.includes("network") || lower.includes("socket") || lower.includes("failed to connect") || lower.includes("unavailable") || lower.includes("503")) {
+        friendlySpeech += "Network slow lag raha hai! Connection weak hone se socket toot gaya, main phir se reconnect kar rahi hoon.";
+      } else {
+        friendlySpeech += `Dhayan do! Kuch gadbad ho gayi hai: ${message.slice(0, 70)}`;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(friendlySpeech);
+      utterance.lang = "hi-IN";
+      utterance.rate = 1.0;
+      utterance.pitch = 1.15; // cute voice tone
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Browser speech failed:", e);
+    }
+  }, []);
+
+  // Save chat history helper
+  useEffect(() => {
+    localStorage.setItem('mahi_chat_history', JSON.stringify(chatHistory));
+  }, [chatHistory]);
+
+  // Save interaction mode helper
+  useEffect(() => {
+    localStorage.setItem('mahi_interaction_mode', interactionMode);
+  }, [interactionMode]);
+
+  // Copy state & helper for error logs dashboard
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const handleCopyError = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // Flashlight States
   const [flashlightOn, setFlashlightOn] = useState(false);
@@ -705,12 +799,12 @@ export default function App() {
       const storedKey = localStorage.getItem('mahi_custom_api_key') || '';
       const apiKeyToUse = storedKey.trim() || process.env.GEMINI_API_KEY;
       if (!apiKeyToUse) {
-        throw new Error("Gemini API Key nahi mil rahi! Please Header mein Settings button daba kar apni Gemini API key enter karein taaki Mahi aapke browser mein direct run kar sake!");
+        throw new Error("Gemini API Key nahi mil rahi! Please Settings option mein apni Google AI Studio API key lgaayein taaki Mahi directly aapke browser se connect ho sake!");
       }
       const ai = new GoogleGenAI({ apiKey: apiKeyToUse });
       
       const session = await ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: selectedModel,
         callbacks: {
           onopen: () => {
             setIsActive(true);
@@ -776,6 +870,25 @@ export default function App() {
             const modelText = msg.serverContent?.modelTurn?.parts?.find((p: any) => p.text)?.text;
             if (modelText) {
               setTranscription(prev => ({ ...prev, mahi: modelText }));
+              setChatHistory(prev => {
+                const updated = [...prev];
+                const lastMsg = updated[updated.length - 1];
+                if (lastMsg && lastMsg.sender === 'mahi') {
+                  const combinedText = lastMsg.text.includes(modelText) ? lastMsg.text : lastMsg.text + " " + modelText;
+                  updated[updated.length - 1] = { ...lastMsg, text: combinedText };
+                  return updated;
+                } else {
+                  return [
+                    ...prev,
+                    {
+                      id: Math.random().toString(36).substring(7),
+                      sender: 'mahi',
+                      text: modelText,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    }
+                  ];
+                }
+              });
             }
             
             // User input transcription (if enabled)
@@ -785,6 +898,21 @@ export default function App() {
                           || msg.serverContent?.transcription?.text;
             if (userText) {
               setTranscription(prev => ({ ...prev, user: userText }));
+              setChatHistory(prev => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.sender === 'user' && lastMsg.text === userText) {
+                  return prev; // Avoid duplicate
+                }
+                return [
+                  ...prev,
+                  {
+                    id: Math.random().toString(36).substring(7),
+                    sender: 'user',
+                    text: userText,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  }
+                ];
+              });
             }
             
             if (message.serverContent?.interrupted) {
@@ -831,7 +959,8 @@ export default function App() {
             stopMahi();
           },
           onerror: (err: any) => {
-            const msg = (err?.message || String(err)).toLowerCase();
+            const errMsg = err?.message || String(err);
+            const msg = errMsg.toLowerCase();
             
             // Ignore normal connection abort/cancel events during cleanup or tab switching
             if (msg.includes("abort") || msg.includes("aborted")) {
@@ -849,9 +978,9 @@ export default function App() {
                 const waitTime = 1500 * retryCountRef.current; 
                 
                 if (msg.includes("unavailable")) {
-                  setError(`Mahi thodi busy hai (Service Unavailable). Reconnecting... (${retryCountRef.current}/5)`);
+                  triggerError(`Mahi thodi busy hai (Service Unavailable). Reconnecting... (${retryCountRef.current}/5)`, errMsg);
                 } else {
-                  setError(`Signal kam aa raha hai... reconnect kar rahi hoon (${retryCountRef.current}/5)`);
+                  triggerError(`Signal kam aa raha hai... reconnect kar rahi hoon (${retryCountRef.current}/5)`, errMsg);
                 }
  
                 setTimeout(() => {
@@ -859,15 +988,15 @@ export default function App() {
                 }, waitTime);
                 return;
               }
-              setError(msg.includes("unavailable") ? "Mahi abhi rest kar rahi hai (Unavailable). Please refresh or wait a bit." : "Network ki problem hai, ek baar button daba kar phir se try karo?");
+              triggerError(msg.includes("unavailable") ? "Mahi abhi rest kar rahi hai (Unavailable). Please refresh or wait a bit." : "Network ki problem hai, ek baar button daba kar phir se try karo?", errMsg);
             } else if (msg.includes("quota") || msg.includes("limit")) {
-              setError("Humne bohot baatein kar li aaj! Limit khatam ho gayi hai. Kal milte hain? (Quota Limit Reached)");
+              triggerError("Humne bohot baatein kar li aaj! Limit khatam ho gayi hai. Kal milte hain? (Quota Limit Reached)", errMsg);
               stopMahi();
             } else if (msg.includes("goaway") || msg.includes("closed")) {
-              setError("Session khatam ho gaya. Chalo phir se start karte hain!");
+              triggerError("Session khatam ho gaya. Chalo phir se start karte hain!", errMsg);
               stopMahi();
             } else {
-              setError("Oops! Kuch gadbad ho gayi. Retry karna chahoge?");
+              triggerError("Oops! Kuch gadbad ho gayi. Retry karna chahoge?", errMsg);
               stopMahi();
             }
           }
@@ -944,21 +1073,22 @@ export default function App() {
       liveSessionRef.current = session;
     } catch (err: any) {
       console.error('Failed to start Mahi:', err);
-      const msg = (err?.message || String(err)).toLowerCase();
+      const errMsg = err?.message || String(err);
+      const msg = errMsg.toLowerCase();
       if (msg.includes("permission denied") || msg.includes("notallowederror")) {
-        setError("Microphone access denied! Please enable mic in browser settings and try again.");
+        triggerError("Microphone access denied! Please enable mic in browser settings and try again.", errMsg);
         stopMahi();
       } else if (msg.includes("unavailable") || msg.includes("network") || msg.includes("fetch")) {
         if (retryCountRef.current < 5) {
           retryCountRef.current++;
-          setError(`Mahi ko call lag raha hai... (${retryCountRef.current}/5)`);
+          triggerError(`Mahi ko call lag raha hai... (${retryCountRef.current}/5)`, errMsg);
           setTimeout(startMahi, 2000 * retryCountRef.current);
         } else {
-          setError("Mahi busy hai ya network issue hai. Please try again later.");
+          triggerError("Mahi busy hai ya network issue hai. Please try again later.", errMsg);
           stopMahi();
         }
       } else {
-        setError("Mic connection mein problem ho rahi hai. Key check karein?");
+        triggerError("Mic connection mein problem ho rahi hai. Key check karein?", errMsg);
         stopMahi();
       }
     }
@@ -1116,13 +1246,29 @@ export default function App() {
 
           <motion.button
             onClick={() => setShowSettings(true)}
-            whileHover={{ scale: 1.1, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
-            whileTap={{ scale: 0.9 }}
-            className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/80 hover:text-white cursor-pointer"
-            title="Settings"
+            whileHover={{ scale: 1.05, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
+            whileTap={{ scale: 0.95 }}
+            className="px-3.5 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center gap-1.5 text-indigo-300 hover:text-white cursor-pointer transition-all text-xs font-black uppercase tracking-wider"
+            title="Configure System / API Keys"
             id="header-settings-button"
           >
-            <Settings size={15} />
+            <Settings size={13} className="animate-spin-slow text-indigo-400" />
+            <span>Settings ⚙️</span>
+          </motion.button>
+
+          <motion.button
+            onClick={() => setShowErrorDashboard(true)}
+            whileHover={{ scale: 1.1, backgroundColor: 'rgba(239, 68, 68, 0.15)' }}
+            whileTap={{ scale: 0.9 }}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center cursor-pointer transition-all ${
+              errorLogs.length > 0 
+                ? 'bg-red-500/10 border-red-500/30 text-red-400 animate-pulse' 
+                : 'bg-white/5 border-white/10 text-white/80 hover:text-white'
+            }`}
+            title="Error Logs Dashboard"
+            id="header-error-dashboard-button"
+          >
+            <AlertTriangle size={15} />
           </motion.button>
         </div>
         
@@ -1136,6 +1282,32 @@ export default function App() {
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
+      </div>
+
+      {/* Interaction Mode Toggle (Voice vs Chat) */}
+      <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60] pointer-events-auto flex p-1 bg-black/60 border border-white/10 backdrop-blur-xl rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+        <button
+          onClick={() => setInteractionMode('voice')}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all duration-300 cursor-pointer ${
+            interactionMode === 'voice' 
+              ? 'bg-gradient-to-r from-pink-500 to-indigo-500 text-white shadow-lg' 
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Volume2 size={11} />
+          🎙️ Voice Mode
+        </button>
+        <button
+          onClick={() => setInteractionMode('chat')}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all duration-300 cursor-pointer ${
+            interactionMode === 'chat' 
+              ? 'bg-gradient-to-r from-indigo-500 to-pink-500 text-white shadow-lg' 
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <MessageSquare size={11} />
+          💬 Chat Mode
+        </button>
       </div>
 
       {/* MiniGames Overlay */}
@@ -1304,32 +1476,63 @@ export default function App() {
       {/* Bottom HUD */}
       <div className="absolute bottom-0 left-0 right-0 min-h-[240px] bg-gradient-to-t from-black via-black/95 to-transparent flex flex-col items-center justify-end pb-12 pt-16 px-4 z-40">
         
-        {/* Dialogue Captions / Subtitles */}
-        {(transcription.mahi || transcription.user) && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-5 px-5 py-2.5 max-w-md w-full bg-black/75 border border-white/10 backdrop-blur-xl rounded-2xl text-center shadow-[0_12px_40px_rgba(0,0,0,0.6)] pointer-events-auto"
-          >
-            {transcription.user && (
-              <p className="text-[9px] uppercase font-mono tracking-wider text-gray-400 mb-0.5">
-                Mahi saw you say: <span className="text-gray-300 normal-case font-sans font-medium">{transcription.user}</span>
-              </p>
+        {/* Dialogue Captions or Scrollable Message History Log */}
+        {interactionMode === 'chat' ? (
+          <div className="mb-5 w-full max-w-sm bg-black/70 border border-white/10 backdrop-blur-xl rounded-2xl p-3 flex flex-col gap-2.5 h-[160px] overflow-y-auto pointer-events-auto select-text custom-scrollbar">
+            {chatHistory.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-3 text-gray-500">
+                <MessageSquare size={16} className="text-indigo-400/30 mb-1" />
+                <p className="text-[10px] font-medium text-gray-400">No chat history yet</p>
+                <p className="text-[9px] text-gray-500">Apna message niche type karein aur chat mode mein baatein karein.</p>
+              </div>
+            ) : (
+              chatHistory.map((msg) => (
+                <div 
+                  key={msg.id}
+                  className={`flex flex-col max-w-[85%] ${
+                    msg.sender === 'user' ? 'self-end items-end' : 'self-start items-start'
+                  }`}
+                >
+                  <div className={`px-3 py-1.5 rounded-2xl text-[11px] leading-relaxed ${
+                    msg.sender === 'user' 
+                      ? 'bg-gradient-to-r from-pink-500/80 to-indigo-500/80 text-white rounded-br-none' 
+                      : 'bg-[#18181c] border border-white/10 text-pink-200 rounded-bl-none'
+                  }`}>
+                    {msg.text}
+                  </div>
+                  <span className="text-[8px] text-gray-500 mt-0.5 px-1 font-mono">{msg.timestamp}</span>
+                </div>
+              ))
             )}
-            {transcription.mahi && (
-              <p className="text-xs font-semibold text-pink-300 leading-relaxed italic">
-                "{transcription.mahi}"
-              </p>
-            )}
-          </motion.div>
+          </div>
+        ) : (
+          /* Voice Mode Dialogue Captions / Subtitles */
+          (transcription.mahi || transcription.user) && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5 px-5 py-2.5 max-w-md w-full bg-black/75 border border-white/10 backdrop-blur-xl rounded-2xl text-center shadow-[0_12px_40px_rgba(0,0,0,0.6)] pointer-events-auto"
+            >
+              {transcription.user && (
+                <p className="text-[9px] uppercase font-mono tracking-wider text-gray-400 mb-0.5">
+                  Mahi saw you say: <span className="text-gray-300 normal-case font-sans font-medium">{transcription.user}</span>
+                </p>
+              )}
+              {transcription.mahi && (
+                <p className="text-xs font-semibold text-pink-300 leading-relaxed italic">
+                  "{transcription.mahi}"
+                </p>
+              )}
+            </motion.div>
+          )
         )}
 
-        {/* Dynamic Chat Input Bar */}
-        {isActive && (
+        {/* Dynamic Chat Input Bar (Only visible in Chat mode, keeping Voice mode clean) */}
+        {isActive && interactionMode === 'chat' && (
           <div className="mb-5 flex items-center gap-2 w-full max-w-sm px-2 pointer-events-auto">
             <input
               type="text"
-              placeholder={isMicPermissionGranted ? "Type something or speak here... (Hinglish works!)" : "Mic blocked. Type here to talk to Mahi..."}
+              placeholder={isMicPermissionGranted ? "Type something here... (Hinglish works!)" : "Mic blocked. Type here to talk to Mahi..."}
               value={textMessage}
               onChange={(e) => setTextMessage(e.target.value)}
               onKeyDown={(e) => {
@@ -1729,16 +1932,69 @@ export default function App() {
               <div className="flex flex-col gap-4">
                 {/* Custom API Key Field */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Your Gemini API Key (Optional)</label>
-                  <input 
-                    type="password"
-                    value={customApiKey}
-                    onChange={(e) => setCustomApiKey(e.target.value)}
-                    placeholder="Enter your Gemini API key..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
-                  />
+                  <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Your Google AI Studio API Key (Optional)</label>
+                  <div className="relative">
+                    <input 
+                      type={showApiKey ? "text" : "password"}
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder="Enter your Gemini API key from Google AI Studio..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                    >
+                      {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
                   <p className="text-[9px] text-gray-400 leading-relaxed">
-                    Browser-based hosting ke liye apni API key enter karein. Ye key aapke local browser storage mein secure rahegi aur directly Gemini server se connect karegi.
+                    Google AI Studio key lgane se Mahi aapke direct browser se connect hogi. Kisi bhi server dependency ke bina secure standalone work karegi! Apni key yahan lagayein aur bina server ke use karein.
+                  </p>
+                </div>
+
+                {/* Model Selection Field */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider flex items-center gap-1">
+                      <SlidersHorizontal size={10} className="text-indigo-400" /> Choose Model
+                    </label>
+                    <span className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded font-mono">LIVE API</span>
+                  </div>
+                  <select 
+                    value={['gemini-3.1-flash-live-preview', 'gemini-2.0-flash-exp', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(selectedModel) ? selectedModel : 'custom'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val !== 'custom') {
+                        setSelectedModel(val);
+                      } else {
+                        setSelectedModel('gemini-2.0-flash-exp');
+                      }
+                    }}
+                    className="w-full bg-[#16161c] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash (live-preview) [Recommended]</option>
+                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (experimental)</option>
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (standard)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (latest)</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (advanced)</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (legacy)</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (legacy advanced)</option>
+                    <option value="custom">Custom Model String...</option>
+                  </select>
+                  
+                  {(!['gemini-3.1-flash-live-preview', 'gemini-2.0-flash-exp', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'].includes(selectedModel)) && (
+                    <input 
+                      type="text"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      placeholder="e.g. gemini-2.0-flash-exp"
+                      className="w-full mt-1.5 bg-[#1a1a24] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-indigo-300 placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  )}
+                  <p className="text-[9px] text-gray-400 leading-relaxed">
+                    Select standard free or paid premium models for Mahi's Live connection. Google AI Studio key is fully compatible with all options.
                   </p>
                 </div>
 
@@ -1763,8 +2019,10 @@ export default function App() {
                   onClick={() => {
                     localStorage.removeItem('mahi_custom_api_key');
                     localStorage.removeItem('mahi_system_modifier');
+                    localStorage.removeItem('mahi_selected_model');
                     setCustomApiKey('');
                     setSystemInstructionModifier('');
+                    setSelectedModel('gemini-3.1-flash-live-preview');
                     setShowSettings(false);
                     if (isActive) {
                       stopMahi();
@@ -1779,6 +2037,7 @@ export default function App() {
                   onClick={() => {
                     localStorage.setItem('mahi_custom_api_key', customApiKey.trim());
                     localStorage.setItem('mahi_system_modifier', systemInstructionModifier.trim());
+                    localStorage.setItem('mahi_selected_model', selectedModel.trim());
                     setShowSettings(false);
                     if (isActive) {
                       stopMahi();
@@ -1789,6 +2048,122 @@ export default function App() {
                 >
                   Save & Apply
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error Logs Dashboard Overlay */}
+      <AnimatePresence>
+        {showErrorDashboard && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[160] flex items-center justify-center p-6 bg-black/75 backdrop-blur-md pointer-events-auto"
+            id="error-logs-dashboard-overlay"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="w-full max-w-lg bg-[#0d0c10] border border-red-500/20 rounded-3xl p-6 flex flex-col h-[520px] max-h-[85vh] shadow-[0_0_50px_rgba(239,68,68,0.1)] relative text-left"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/25 flex items-center justify-center text-red-400">
+                    <AlertTriangle size={18} className="animate-bounce" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase text-white tracking-wider flex items-center gap-2">
+                      Mahi Error Logs Console
+                      <span className="text-[9px] bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.5 rounded font-mono font-bold">
+                        {errorLogs.length} logged
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-gray-400">View and copy connection, API, or mic errors to send to developer</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowErrorDashboard(false)} 
+                  className="p-1.5 hover:bg-white/5 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Action bar */}
+              <div className="flex items-center justify-between bg-white/5 px-4 py-2 rounded-xl mt-4 text-[10px] uppercase font-mono tracking-wider text-gray-400 shrink-0">
+                <span>Mahendra's Debugging Space</span>
+                {errorLogs.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setErrorLogs([]);
+                      localStorage.removeItem('mahi_error_logs');
+                    }}
+                    className="flex items-center gap-1.5 text-red-400 hover:text-red-300 transition-colors cursor-pointer font-bold"
+                  >
+                    <Trash2 size={12} />
+                    Clear Console
+                  </button>
+                )}
+              </div>
+
+              {/* Scrollable logs list */}
+              <div className="flex-1 overflow-y-auto mt-4 pr-1 space-y-3 custom-scrollbar">
+                {errorLogs.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
+                    <div className="w-12 h-12 rounded-full border border-dashed border-gray-800 flex items-center justify-center mb-3">
+                      <Check size={20} className="text-emerald-400" />
+                    </div>
+                    <p className="text-xs font-medium text-gray-300">All Systems Operational!</p>
+                    <p className="text-[10px] mt-1 max-w-[280px]">Mahi is running perfectly. Connection failures, key faults, or mic blockages will log directly here.</p>
+                  </div>
+                ) : (
+                  errorLogs.map((log) => {
+                    const fullTextToCopy = `=== MAHI SYSTEM ERROR LOG ===\nTimestamp: ${log.timestamp}\nError: ${log.message}\nDetails: ${log.details}\n==============================`;
+                    const isCopied = copiedId === log.id;
+                    return (
+                      <div 
+                        key={log.id}
+                        className="bg-red-950/10 border border-red-950/40 rounded-xl p-3.5 space-y-2.5 relative group hover:border-red-950/60 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping shrink-0" />
+                            <span className="text-[10px] font-mono text-red-400 font-bold">{log.timestamp}</span>
+                          </div>
+                          <button
+                            onClick={() => handleCopyError(log.id, fullTextToCopy)}
+                            className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
+                              isCopied 
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                                : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+                            }`}
+                          >
+                            {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                            {isCopied ? 'Copied!' : 'Copy Error'}
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-semibold text-gray-200">{log.message}</h4>
+                          <p className="text-[10px] text-gray-400 leading-relaxed font-mono bg-black/40 p-2.5 rounded-lg border border-white/5 overflow-x-auto whitespace-pre-wrap select-text max-h-[120px]">
+                            {log.details}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer hint */}
+              <div className="border-t border-white/5 pt-4 mt-4 text-[10px] text-gray-500 leading-relaxed shrink-0 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                <span>Mahi automatically reads aloud these errors in Hinglish so you stay informed during active voice sessions.</span>
               </div>
             </motion.div>
           </motion.div>

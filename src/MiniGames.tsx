@@ -4,7 +4,7 @@ import {
   Trophy, Star, Music, Brain, X, CheckCircle2, AlertCircle, 
   Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, User, Bot, 
   Volume2, Play, Sparkles, HelpCircle, ArrowRight, RotateCcw,
-  Scissors, FileText, Square, Circle
+  Scissors, FileText, Square, Circle, Wifi, Battery, Signal
 } from 'lucide-react';
 
 export type GameType = 'ludo' | 'trivia' | 'sound' | 'tictactoe' | 'rps' | 'none';
@@ -109,6 +109,18 @@ const SOUND_ITEMS: SoundItem[] = [
 
 export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesProps) {
   const [audioCtx, setAudioCtx] = useState<AudioContext | null>(null);
+
+  // --- Clock State for Phone UI ---
+  const [currentTime, setCurrentTime] = useState("");
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setCurrentTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Get or create local AudioContext securely
   const getAudioContext = () => {
@@ -577,18 +589,50 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
       initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
       animate={{ opacity: 1, backdropFilter: 'blur(10px)' }}
       exit={{ opacity: 0, backdropFilter: 'blur(0px)' }}
-      className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/40"
+      className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-black/50"
     >
-      <div className="relative w-full max-w-xl bg-[#0a0a0c] border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-        
-        {/* CLOSE BUTTON */}
+      {/* VIRTUAL MOBILE SMARTPHONE FRAME */}
+      <div 
+        className="relative w-full max-w-[360px] h-[640px] max-h-[92vh] bg-[#0c0c0f] rounded-[42px] border-[8px] border-zinc-800 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden select-none"
+        style={{ borderColor: '#222226' }}
+        id="mini-game-phone-frame"
+      >
+        {/* PHYSICAL SPEAKER & CAMERA NOTCH (DYNAMIC ISLAND) */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-5 bg-black rounded-full z-[130] flex items-center justify-center border border-white/5 shadow-inner">
+          <div className="w-8 h-1 bg-zinc-800 rounded-full" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#111116] border border-zinc-900 absolute right-3 flex items-center justify-center">
+            <div className="w-1 h-1 rounded-full bg-blue-900/40" />
+          </div>
+        </div>
+
+        {/* SIMULATED STATUS BAR */}
+        <div className="h-9 px-6 pt-1 flex items-center justify-between text-[10px] font-sans font-bold text-gray-400 select-none bg-black/20 shrink-0 relative z-[120]">
+          {/* Left side: Time & Heart icon */}
+          <div className="flex items-center gap-1">
+            <span>{currentTime || "12:00"}</span>
+            <span className="text-[9px] text-pink-500 animate-pulse">💖</span>
+          </div>
+          {/* Right side: Signal, Wifi, Battery */}
+          <div className="flex items-center gap-1.5">
+            <Signal size={10} className="text-gray-400" />
+            <Wifi size={10} className="text-gray-400" />
+            <span className="text-[9px]">98%</span>
+            <Battery size={11} className="text-emerald-500/90" />
+          </div>
+        </div>
+
+        {/* INTEGRATED CLOSE/EXIT OVERLAY BUTTON (Aligned with header) */}
         <button 
           onClick={onClose} 
-          className="absolute top-6 right-6 p-2 hover:bg-white/5 rounded-full transition-colors z-[120]"
+          className="absolute top-11 right-4 p-1.5 hover:bg-white/5 rounded-full transition-colors z-[125] text-gray-400 hover:text-white cursor-pointer"
           id="close-minigame-btn"
+          title="Exit Game"
         >
-          <X size={20} className="text-gray-400 hover:text-white" />
+          <X size={16} />
         </button>
+
+        {/* PHONE INTERNAL CONTENT CONTAINER */}
+        <div className="flex-1 flex flex-col overflow-hidden relative pb-4">
 
         {/* ==============================================
             GAME MODE 1: LUDO
@@ -1328,6 +1372,10 @@ export function MiniGames({ gameType, onClose, onGameEvent, theme }: MiniGamesPr
           </Fragment>
         )}
 
+        </div>
+
+        {/* BOTTOM HOME INDICATOR BAR */}
+        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-24 h-1 bg-white/20 rounded-full z-[120] pointer-events-none" />
       </div>
     </motion.div>
   );
